@@ -8,6 +8,7 @@ import java.util.Map;
 /**
  * Represents a single currency with its name, code, and exchange rates
  * relative to other supported currencies.
+ * Supports both live API rates and hardcoded fallback rates.
  * 
  * @author Aniket Chaudhari
  */
@@ -16,6 +17,9 @@ public class CurrencyData {
     private String currencyName;
     private String currencyCode;
     private Map<String, Double> exchangeRates;
+
+    // All supported currency codes
+    private static final String[] SUPPORTED_CODES = {"USD", "EUR", "GBP", "CHF", "CNY", "JPY", "INR"};
 
     /**
      * Creates a new CurrencyData instance.
@@ -55,10 +59,33 @@ public class CurrencyData {
     }
 
     /**
-     * Loads hardcoded exchange rates for this currency based on its name.
-     * Rates are approximate and used for demonstration purposes.
+     * Loads live exchange rates from the API for this currency.
+     * Only picks rates for supported currencies.
+     * 
+     * @return true if live rates were loaded successfully, false otherwise
      */
-    public void loadExchangeRates() {
+    public boolean loadLiveRates() {
+        Map<String, Double> liveRates = ExchangeRateService.fetchRates(this.currencyCode);
+        if (liveRates == null || liveRates.isEmpty()) {
+            return false;
+        }
+
+        // Only store rates for our supported currencies
+        for (String code : SUPPORTED_CODES) {
+            Double rate = liveRates.get(code);
+            if (rate != null) {
+                exchangeRates.put(code, rate);
+            }
+        }
+
+        return !exchangeRates.isEmpty();
+    }
+
+    /**
+     * Loads hardcoded fallback exchange rates for when the API is unavailable.
+     * Rates are approximate and used as a backup only.
+     */
+    public void loadFallbackRates() {
         switch (this.currencyName) {
             case "US Dollar":
                 exchangeRates.put("USD", 1.00);
@@ -133,8 +160,10 @@ public class CurrencyData {
     }
 
     /**
-     * Initializes and returns the list of all supported currencies
-     * with their exchange rates pre-loaded.
+     * Initializes all supported currencies and loads their exchange rates.
+     * Tries to fetch live rates from API first; falls back to hardcoded if offline.
+     * 
+     * @return list of currencies with exchange rates loaded
      */
     public static List<CurrencyData> createCurrencies() {
         List<CurrencyData> supportedCurrencies = new ArrayList<>();
@@ -147,9 +176,28 @@ public class CurrencyData {
         supportedCurrencies.add(new CurrencyData("Japanese Yen", "JPY"));
         supportedCurrencies.add(new CurrencyData("Indian Rupee", "INR"));
 
-        // Load exchange rates for each currency
+        // Try loading live rates from API
+        System.out.println("Fetching live exchange rates...");
+        boolean useLive = true;
+
         for (CurrencyData currency : supportedCurrencies) {
-            currency.loadExchangeRates();
+            if (!currency.loadLiveRates()) {
+                // If any currency fails, fall back to hardcoded for all
+                useLive = false;
+                System.err.println("Could not fetch live rates. Using offline fallback rates.");
+                break;
+            }
+        }
+
+        // If live rates failed, use hardcoded fallback
+        if (!useLive) {
+            for (CurrencyData currency : supportedCurrencies) {
+                currency.exchangeRates.clear();
+                currency.loadFallbackRates();
+            }
+            System.out.println("Loaded fallback exchange rates (offline mode).");
+        } else {
+            System.out.println("Live exchange rates loaded successfully!");
         }
 
         return supportedCurrencies;
